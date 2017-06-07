@@ -24,6 +24,10 @@ char pass[] = "mypassword";
 // Temperature sensor full ID, including family code and CRC
 DeviceAddress tempSensor = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
 
+// Alert messages
+char alertMessageLow[] = "House temperature is LOW!";
+char alertMessageHigh[] = "House temperature is HIGH!";
+
 // Pin used for the OneWire interface
 #define ONEWIRE_PIN 4
 
@@ -31,13 +35,23 @@ OneWire oneWire(ONEWIRE_PIN);
 DallasTemperature sensors(&oneWire);
 SimpleTimer timer;
 
+int alertTempLow, alertTempHigh;
+boolean lowAlertOn = false;
+boolean highAlertOn = false;
+
 // Virtual pins to send temperature on
-#define V_PIN_A V0
-#define V_PIN_B V1
+#define V_PIN_TEMP_A V0 // Value - Widget must allow color change
+#define V_PIN_TEMP_B V1
+// Virtual pins for alert temperature set points
+#define V_PIN_ALERT_LOW V2
+#define V_PIN_ALERT_HIGH V3
 
 #undef TEMP_IN_FAHRENHEIT
-// Uncomment to use Fahrenheit else use Celsius
+// Uncomment to use Fahrenheit or comment out for Celsius
 #define TEMP_IN_FAHRENHEIT
+
+// Hysteresis in degrees for alerts
+#define ALERT_HYSTERESIS 3
 
 // Temperature reading interval, in SECONDS
 #define READ_INTERVAL 30
@@ -76,9 +90,13 @@ SimpleTimer timer;
 #define LED_ON LOW
 #define LED_OFF HIGH
 
+// Widget colors for alerts
+#define ALERT_COLOR_OK   "#23C48E" // Green
+#define ALERT_COLOR_LOW  "#5F7CD8" // Dark Blue
+#define ALERT_COLOR_HIGH "#D3435C" // Red
+
 //--------------------- SETUP -------------------
-void setup()
-{
+void setup() {
   Serial.begin(9600);
 
   pinMode(LED_PIN, OUTPUT);
@@ -107,6 +125,21 @@ void setup()
 }
 //-----------------------------------------------
 
+// Synchronize pins when connection comes up
+BLYNK_CONNECTED() {
+  Blynk.syncAll();
+}
+
+// Set low alert temperature
+BLYNK_WRITE(V_PIN_ALERT_LOW) {
+  alertTempLow = param.asInt();
+}
+
+// Set high alert temperature
+BLYNK_WRITE(V_PIN_ALERT_HIGH) {
+  alertTempHigh = param.asInt();
+}
+
 // Blink the LED if the connection is down
 void connectionCheck() {
   if (Blynk.connected()) {
@@ -128,7 +161,7 @@ void startSensorRead() {
   timer.setTimeout(READ_CONV_WAIT, sensorRead);
 }
 
-// Read the temperature from the sensor
+// Read the temperature from the sensor and perform the appropriate actions
 void sensorRead() {
   int16_t tempRaw;
   float temp;
@@ -144,8 +177,32 @@ void sensorRead() {
 #else
     temp = sensors.rawToCelsius(tempRaw);
 #endif
-    Blynk.virtualWrite(V_PIN_A, temp);
-    Blynk.virtualWrite(V_PIN_B, temp);
+
+    // Send temperature value
+    Blynk.virtualWrite(V_PIN_TEMP_A, temp);
+    Blynk.virtualWrite(V_PIN_TEMP_B, temp);
+
+    // Low temperature alerts
+    if ((temp <= alertTempLow) && !lowAlertOn) {
+      Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_LOW);
+      Blynk.notify(alertMessageLow);
+      lowAlertOn = true;
+    }
+    else if (lowAlertOn && (temp > alertTempLow + ALERT_HYSTERESIS)) {
+      Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_OK);
+      lowAlertOn = false;
+    }
+
+    // High temperature alerts
+    if ((temp >= alertTempHigh) && !highAlertOn) {
+      Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_HIGH);
+      Blynk.notify(alertMessageHigh);
+      highAlertOn = true;
+    }
+    else if (highAlertOn && (temp < alertTempHigh - ALERT_HYSTERESIS)) {
+      Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_OK);
+      highAlertOn = false;
+    }
 
     flashLED(LED_READ_OK_FLASH_TIME);
   }
@@ -155,8 +212,7 @@ void sensorRead() {
 }
 
 //--------------------- LOOP --------------------
-void loop()
-{
+void loop() {
   Blynk.run();
   timer.run();
 }

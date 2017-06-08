@@ -134,15 +134,20 @@ void setup() {
     }
   }
 
+  // Set the resolution of the temperature readings
   sensors.setResolution(tempSensor, TEMPERATURE_RES_BITS);
+
+  // We'll do the "wait for conversion" ourselves using a timer,
+  // to avoid the call to delay() that the library would use
   sensors.setWaitForConversion(false);
 
+  // Start up Blynk
   Blynk.begin(auth, ssid, pass);
 
-  // Connection timer
+  // Start the interval timer that checks if the connection is up
   timer.setInterval(CONNECTION_CHECK_TIME, connectionCheck);
 
-  // Sensor read timer
+  // Start the timer that handles the temperature read interval
   timer.setInterval(READ_INTERVAL * 1000, startSensorRead);
 }
 //-----------------------------------------------
@@ -173,7 +178,7 @@ void connectionCheck() {
   indLEDoff();
 }
 
-// Start temperature conversion and initiate indicator LED blink
+// Start a temperature read and the conversion wait timer
 void startSensorRead() {
   if (!Blynk.connected()) {
     return;

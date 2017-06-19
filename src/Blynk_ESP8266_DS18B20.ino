@@ -57,23 +57,37 @@ OneWire oneWire(ONEWIRE_PIN);
 DallasTemperature sensors(&oneWire);
 SimpleTimer timer;
 
+// Current temperature is a global so it can used to reset min/max temperatures
+float currentTemp = 0;
+
+// Minimum and maximum temperatures are set to out of range values that will be
+// overridden the first time the actual temperature is read.
+float minTemp = 10000.0;
+float maxTemp = -10000.0;
+
 int alertTempLow, alertTempHigh;
 boolean lowAlertOn = false;
 boolean highAlertOn = false;
 
-// Virtual pins to send temperature on
+
+// Virtual pins to send temperature reading (from device)
 #define V_PIN_TEMP_A V0 // Value - Widget must allow color change
 #define V_PIN_TEMP_B V1
-// Virtual pins for alert temperature set points
+// Virtual pins for alert temperature set points (to device)
 #define V_PIN_ALERT_LOW V2
 #define V_PIN_ALERT_HIGH V3
+// Virtual pins for min/max temperatures (from device)
+#define V_PIN_TEMP_MIN V4
+#define V_PIN_TEMP_MAX V5
+// Virtual pin for min/max temperature reset (to device)
+#define V_PIN_MIN_MAX_RESET V6
 
 #undef TEMP_IN_FAHRENHEIT
 // Uncomment to use Fahrenheit or comment out for Celsius
 #define TEMP_IN_FAHRENHEIT
 
 // Hysteresis in degrees for alerts
-#define ALERT_HYSTERESIS 3
+#define ALERT_HYSTERESIS 1
 
 // Temperature reading interval, in SECONDS
 #define READ_INTERVAL 30
@@ -167,6 +181,15 @@ BLYNK_WRITE(V_PIN_ALERT_HIGH) {
   alertTempHigh = param.asInt();
 }
 
+// Reset minimum and maximum temperatures
+BLYNK_WRITE(V_PIN_MIN_MAX_RESET) {
+  if (param.asInt()) { // if button pressed
+    minTemp = maxTemp = currentTemp;
+    Blynk.virtualWrite(V_PIN_TEMP_MIN, currentTemp);
+    Blynk.virtualWrite(V_PIN_TEMP_MAX, currentTemp);
+  }
+}
+
 // Blink the LED if the connection is down
 void connectionCheck() {
   if (Blynk.connected()) {
@@ -191,7 +214,6 @@ void startSensorRead() {
 // Read the temperature from the sensor and perform the appropriate actions
 void sensorRead() {
   int16_t tempRaw;
-  float temp;
 
   if (!Blynk.connected()) {
     return;
@@ -200,35 +222,45 @@ void sensorRead() {
   tempRaw = sensors.getTemp(tempSensor);
   if (tempRaw != DEVICE_DISCONNECTED_RAW) {
 #ifdef TEMP_IN_FAHRENHEIT
-    temp = sensors.rawToFahrenheit(tempRaw);
+    currentTemp = sensors.rawToFahrenheit(tempRaw);
 #else
-    temp = sensors.rawToCelsius(tempRaw);
+    currentTemp = sensors.rawToCelsius(tempRaw);
 #endif
 
     // Send temperature value
-    Blynk.virtualWrite(V_PIN_TEMP_A, temp);
-    Blynk.virtualWrite(V_PIN_TEMP_B, temp);
+    Blynk.virtualWrite(V_PIN_TEMP_A, currentTemp);
+    Blynk.virtualWrite(V_PIN_TEMP_B, currentTemp);
 
     // Low temperature alerts
-    if ((temp <= alertTempLow) && !lowAlertOn) {
+    if ((currentTemp <= alertTempLow) && !lowAlertOn) {
       Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_LOW);
       Blynk.notify(alertMessageLow);
       lowAlertOn = true;
     }
-    else if (lowAlertOn && (temp > alertTempLow + ALERT_HYSTERESIS)) {
+    else if (lowAlertOn && (currentTemp > alertTempLow + ALERT_HYSTERESIS)) {
       Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_OK);
       lowAlertOn = false;
     }
 
     // High temperature alerts
-    if ((temp >= alertTempHigh) && !highAlertOn) {
+    if ((currentTemp >= alertTempHigh) && !highAlertOn) {
       Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_HIGH);
       Blynk.notify(alertMessageHigh);
       highAlertOn = true;
     }
-    else if (highAlertOn && (temp < alertTempHigh - ALERT_HYSTERESIS)) {
+    else if (highAlertOn && (currentTemp < alertTempHigh - ALERT_HYSTERESIS)) {
       Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_OK);
       highAlertOn = false;
+    }
+
+    // Minimum and maximum temperatures
+    if (currentTemp < minTemp) {
+      minTemp = currentTemp;
+      Blynk.virtualWrite(V_PIN_TEMP_MIN, currentTemp);
+    }
+    if (currentTemp > maxTemp) {
+      maxTemp = currentTemp;
+      Blynk.virtualWrite(V_PIN_TEMP_MAX, currentTemp);
     }
 
     flashLED(LED_READ_OK_FLASH_TIME);

@@ -90,7 +90,7 @@ boolean highAlertOn = false;
 #define ALERT_HYSTERESIS 1
 
 // Temperature reading interval, in SECONDS
-#define READ_INTERVAL 30
+#define READ_INTERVAL 60
 
 // Check interval for network connection, in milliseconds
 // This should be a bit shorter than the Blynk reconnect poll time, which
